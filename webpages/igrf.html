@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <title>IGRF Map Render</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="../Lib/Leaflet/leaflet.css">
+    <link rel="stylesheet" href="../Lib/Leaflet-draw/leaflet.draw.css">
+    <link rel="stylesheet" href="../Lib/Leaflet-Markercluster/MarkerCluster.css">
+    <script src="../Lib/Exif/exif.js"></script>
+    <script src="../Lib/Leaflet/leaflet.js"></script>
+    <script src="../Lib/Leaflet/transform.js"></script>
+    <script src="../Lib/Leaflet-draw/Leaflet.draw.js"></script>
+    <script src="../Lib/Leaflet-kit/leaflet.polylineDecorator.js"></script>
+    <script src="../Lib/Leaflet-kit/leaflet.filelayer.js"></script>
+    <script src="../Lib/Leaflet-Markercluster/leaflet.markercluster.js"></script>
+    <script src="../Lib/pMapCreate.js"></script>
+    <style>
+        #mapid {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+        }
+
+        .loader {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            font-size: 30px;
+        }
+
+        .loader .spinner {
+            border: 16px solid #ff6699;
+            border-radius: 50%;
+            border-top: 16px solid #ffffff;
+            width: calc(100% - 32px);
+            height: calc(100% - 32px);
+            position: absolute;
+            animation: spin 2s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader span {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            width: 100%;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+        }
+
+        input:checked+.slider {
+            background-color: #2196F3;
+        }
+
+        input:focus+.slider {
+            box-shadow: 0 0 1px #2196F3;
+        }
+
+        input:checked+.slider:before {
+            -webkit-transform: translateX(26px);
+            -ms-transform: translateX(26px);
+            transform: translateX(26px);
+        }
+
+        .slider.round {
+            border-radius: 34px;
+        }
+
+        .slider.round:before {
+            border-radius: 50%;
+        }
+
+        .center-text {
+            text-align: center;
+        }
+
+        .leaflet-tooltip {
+            background: rgba(255, 255, 255, 0.8);
+            border: none;
+            font-size: medium;
+            font-weight: bolder;
+            font-size: 20px;
+        }
+
+        .leaflet-container {
+            cursor: default !important;
+        }
+
+        .altitude-control {
+            display: flex;
+            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 20px;
+            color: white;
+        }
+
+        .altitude-control input[type="number"] {
+            width: 60px;
+            height: 30px;
+        }
+
+        .altitude-control .switch {
+            vertical-align: middle;
+        }
+
+        #baseMapSelector {
+            text-align: center;
+            font-size: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="mapid"></div>
+
+    <script>
+        const IGRF_URL = "https://geomag.bgs.ac.uk/web_service/GMModels/igrf/13/?latitude=";
+        var L_zoom_length = [3000, 1000, 900, 500, 300, 200, 100, 50, 20, 10, 5, 3, 1, 0.5, 0.3, 0.2, 0.1, 0.05]
+
+        var marker;
+        var lat, lng, json;
+        var currentArrow, linecore;
+        var linecore_north_direct, currentArrow_north_direct;
+        var inclinationRadians, declinationRadians;
+        var TTRight, TTLeft;
+
+        initMap(35.8617, 104.1954, 5);
+        enableFullScreen();
+        enableCluster('marker-cluster');
+        enableScaler('bottomleft')
+        enableBaseMapSelector('topleft');
+
+
+        //磁场指示箭头
+        var _arrow_type = {
+            patterns: [
+                {
+                    offset: '100%', repeat: 0, symbol:
+                        L.Symbol.arrowHead({
+                            pixelSize: 15,
+                            polygon: false,
+                            pathOptions: { stroke: true, color: 'red' }
+                        })
+                }
+            ]
+        };
+        //北方指示箭头
+        var _arrow_type_north = {
+            patterns: [
+                {
+                    offset: '100%', repeat: 0, symbol:
+                        L.Symbol.arrowHead({
+                            pixelSize: 15,
+                            polygon: false,
+                            pathOptions: { stroke: true, color: 'blue' }
+                        })
+                }
+            ]
+        };
+        //手动高度控制
+        var altitudeControl = L.control({ position: 'topleft' });
+        altitudeControl.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'altitude-control');
+            div.innerHTML += '<h3 title="当没有开启时为自动获取地表高">手动高度控制(千米)</h3>'
+            div.innerHTML += '<label class="switch">:<input type="checkbox" id="enable-input-button"><span class="slider round"></span></label> <br />';
+            div.innerHTML += '<div><input id="altitude-input" type="number" value="0.0" min="0" disabled></div>';
+            L.DomEvent.on(div, 'click', L.DomEvent.stopPropagation);
+            return div;
+        };
+        altitudeControl.addTo(map);
+        document.getElementById('enable-input-button').addEventListener('click', function () { document.getElementById('altitude-input').disabled = false; });
+        document.getElementById('enable-input-button').addEventListener('change', function () { document.getElementById('altitude-input').disabled = !this.checked; });
+        //刷新控制
+        function refreshMark() {
+            if (linecore) { linecore.remove() }
+            if (currentArrow) { currentArrow.remove(); }
+            if (linecore_north_direct) { linecore_north_direct.remove() }
+            if (currentArrow_north_direct) { currentArrow_north_direct.remove(); }
+            if (TTRight) { TTRight.remove(); }
+            if (TTLeft) { TTLeft.remove(); }
+        }
+        //选点
+        map.on('click', function (e) {
+            //点击事件
+            lat = e.latlng.lat;
+            lng = e.latlng.lng;
+            //注入经纬度
+            if (marker) { map.removeLayer(marker); }
+            refreshMark();
+            //刷新检查
+            marker = L.marker(e.latlng).addTo(map);
+            marker.bindPopup('<div class="loader"><div class="spinner"></div><span>Loading...</span></div>').openPopup();
+            //加载提示
+            var xhr = new XMLHttpRequest();
+            var switchState = document.getElementById('enable-input-button').checked;
+            if (switchState) {
+                var altitude = document.getElementById('altitude-input').value;
+                xhr.open("GET", IGRF_URL + lat + "&longitude=" + lng + "&altitude=" + altitude + "&format=json", true);
+                xhr.send();//获取磁场数据
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState == 4) {
+                        if (xhr.status == 200) {
+                            marker.closePopup();//异步加载完成
+                            json = JSON.parse(xhr.responseText);
+                            Draw_();
+                        } else {
+                            marker.closePopup();//异步加载完成
+                            marker.bindPopup('<div class="center-text">Error: ' + xhr.status + ' - retap point to retry</div>').openPopup();
+                        }
+                    }
+
+                }
+            } else {
+                //获取标高高度
+                xhr.open("GET", "https://api.open-elevation.com/api/v1/lookup?locations=" + lat + "," + lng, true);
+                xhr.send();
+                xhr.onreadystatechange = function () {
+                    if (xhr.readyState == 4) {
+                        var _alt_value = ((xhr.status == 200) ? JSON.parse(xhr.responseText).results[0].elevation / 1000 : 0);
+                        xhr.open("GET", IGRF_URL + lat + "&longitude=" + lng + "&altitude=" + _alt_value + "&format=json", true);
+                        xhr.send();//获取磁场数据
+                        xhr.onreadystatechange = function () {
+                            if (xhr.readyState == 4) {
+                                if (xhr.status == 200) {
+                                    marker.closePopup();//异步加载完成
+                                    json = JSON.parse(xhr.responseText);
+                                    Draw_();
+                                } else {
+                                    marker.closePopup();//异步加载完成
+                                    marker.bindPopup('<div class="center-text">Error: ' + xhr.status + ' - retap point to retry</div>').openPopup();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        //画图
+        function Draw_() {
+            if (json) {
+                var result = json['geomagnetic-field-model-result'];
+                var coordinates = result.coordinates;
+                var fieldValue = result['field-value'];
+                var secularVariation = result['secular-variation'];
+                inclinationRadians = fieldValue['inclination'].value * Math.PI / 180; //下降
+                declinationRadians = fieldValue['declination'].value * Math.PI / 180; //偏移
+                var length = L_zoom_length[map.getZoom()] * 0.05;
+                var endLng = lng + Math.sin(declinationRadians) * length;
+                var endLat = lat + Math.cos(declinationRadians) * length;
+                var endLng_ = lng + Math.sin(inclinationRadians) * length;
+                var endLat_ = lat + Math.cos(inclinationRadians) * length;
+                var endLng_N = lng + Math.sin(0) * length;
+                var endLat_N = lat + Math.cos(0) * length;
+                //偏角左侧框
+                TTLeft = L.tooltip({
+                    permanent: false,
+                    direction: 'left',
+                    className: 'text'
+                }).setContent(
+                    '<table>' +
+                    '<tr><td>Declination: ' + fieldValue['declination'].value + ' deg East' + '</td></tr>' +
+                    '<tr><td>Intensity: ' + fieldValue['east-intensity'].value + ' nT' + '</td></tr>' +
+                    '<tr><td>Horizontal Intensity: ' + fieldValue['horizontal-intensity'].value + ' nT </td></tr>' +
+                    '<tr><td>Secular Declination: ' + secularVariation['declination'].value + ' arcmin/y' + '</td></tr>' +
+                    '<tr><td>Secular Variation: ' + secularVariation['east-intensity'].value + ' nT/y' + '</td></tr>' +
+                    '</table>'
+                ).setLatLng([endLat, endLng]).addTo(map);
+                //偏角右侧框
+                TTRight = L.tooltip({
+                    permanent: false,
+                    direction: 'right',
+                    className: 'text'
+                }).setContent(
+                    '<table>' +
+                    '<tr><td>Inclination: ' + fieldValue['inclination'].value + ' deg Down' + '</td></tr>' +
+                    '<tr><td>Intensity: ' + fieldValue['north-intensity'].value + ' nT' + '</td></tr>' +
+                    '<tr><td>Vertical Intensity: ' + fieldValue['vertical-intensity'].value + ' nT </td></tr>' +
+                    '<tr><td>Secular Inclination: ' + secularVariation['inclination'].value + ' arcmin/y' + '</td></tr>' +
+                    '<tr><td>Secular Variation: ' + secularVariation['north-intensity'].value + ' nT/y' + '</td></tr>' +
+                    '</table>'
+                ).setLatLng([endLat_N, endLng_N]).addTo(map);
+                //设置总体强度(右侧框)
+                L.tooltip({
+                    permanent: false,
+                    direction: 'right',
+                    className: 'text'
+                }).setContent(
+                    '<table>' +
+                    '<tr><td>Model:</td><td>' + result.model + ' - ' + result.model_revision + ' (' + result.date.value + ')</td></tr>' +
+                    '<tr><td>Lat,Lon:</td><td>' + result.coordinates.latitude.value.toFixed(2) + ' , ' + result.coordinates.longitude.value.toFixed(2) + '</td></tr>' +
+                    '<tr><td>Altitude:</td><td>' + result.coordinates.altitude.value.toFixed(2) + ' km</td></tr>' +
+                    '<tr><td>Total Intensity:</td><td>' + fieldValue['total-intensity'].value + ' nT (' + secularVariation['total-intensity'].value + ' nT/y) </td></tr>' +
+                    '</table>'
+                ).setLatLng([lat, lng]).addTo(map);
+                //磁场指示箭头
+                linecore = L.polyline([[lat, lng], [endLat, endLng]], { color: 'red' }).addTo(map);
+                linecore_north_direct = L.polyline([[lat, lng], [endLat_N, endLng_N]], { color: 'blue' }).addTo(map);
+                currentArrow = L.polylineDecorator(linecore, _arrow_type).addTo(map);
+                currentArrow_north_direct = L.polylineDecorator(linecore_north_direct, _arrow_type_north).addTo(map);
+            }
+
+        }
+        //缩放事件控制
+        map.on('zoomend', function () {
+            if (json && marker) {
+                refreshMark();//刷新marker
+                Draw_();//重绘直线
+            }
+        });
+    </script>
+</body>
+
+</html>
