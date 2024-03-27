@@ -1,0 +1,126 @@
+<meta charset="utf-8">
+<title>地图图片上传测试</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="./LeafletBase/Leaflet/leaflet.css">
+<link rel="stylesheet" href="./LeafletBase/Leaflet-draw/leaflet.draw.css">
+<link rel="stylesheet" href="./LeafletBase/Leaflet-Markercluster/MarkerCluster.css">
+<script src="./LeafletBase/Exif/exif.js"></script>
+<script src="./LeafletBase/Leaflet/leaflet.js"></script>
+<script src="./LeafletBase/Leaflet/transform.js"></script>
+<script src="./LeafletBase/Leaflet-draw/Leaflet.draw.js"></script>
+<script src="./LeafletBase/Leaflet-kit/leaflet.polylineDecorator.js"></script>
+<script src="./LeafletBase/Leaflet-kit/leaflet.filelayer.js"></script>
+<script src="./LeafletBase/Leaflet-Markercluster/leaflet.markercluster.js"></script>
+<script src="./pMapCreate.js"></script>
+<style>
+    html,
+    body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+    }
+
+    .icon_img {
+        border: 4px solid #f69;
+        overflow: hidden;
+    }
+
+    .cluster-icon {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+        color: #fff;
+        background-color: rgba(0, 0, 0, 0.5);
+    }
+</style>
+
+<script>
+    initMap(35.8617, 104.1954, 5);
+    enableFullScreen();
+    enableCluster('marker-cluster');
+    enableScaler('bottomleft')
+    enableBaseMapSelector('topleft');
+
+    //等待页面加载完成后注册事件
+    document.addEventListener('DOMContentLoaded', function () {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.id = 'upload-image';
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        //添加文件上传事件
+        mapDiv.addEventListener('dragover', function (event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        });
+        mapDiv.addEventListener('drop', function (event) {
+            event.preventDefault();
+            ProcessFile(event.dataTransfer.files);
+        });
+        //手机端模拟点击上传按钮
+        map.on('click', function (e) { document.getElementById('upload-image').click(); });
+        //上传按钮事件
+        document.getElementById('upload-image').addEventListener('change', function (e) {
+            ProcessFile(e.target.files);
+        });
+    });
+
+
+    //处理上传图片
+    function ProcessFile(files) {
+        [...files].forEach(file => {
+            EXIF.getData(file, function () {
+                var lat = EXIF.getTag(this, "GPSLatitude");
+                var lng = EXIF.getTag(this, "GPSLongitude");
+                var latRef = EXIF.getTag(this, "GPSLatitudeRef");
+                var lngRef = EXIF.getTag(this, "GPSLongitudeRef");
+                var lat_ = convertDMSToDD(lat[0], lat[1], lat[2], latRef);
+                var lng_ = convertDMSToDD(lng[0], lng[1], lng[2], lngRef);
+                var marker = CreateMarker(lat_, lng_);
+                var reader = new FileReader();
+                reader.onload = function (e) {
+                    var img = new Image();
+                    img.onload = function () {
+                        var width = Math.min(this.width, 50); // 限制最大宽度为50px
+                        var height = Math.min(this.height, 50); // 限制最大高度为50px
+                        var icon = L.icon({
+                            iconUrl: e.target.result,
+                            iconSize: [width, height],
+                            className: 'icon_img'
+                        });
+                        marker.setIcon(icon);
+                        marker.on('click', function () {
+                            var popupContent = document.createElement('div');
+                            popupContent.style.width = '300px'; // 设置弹出框的宽度
+                            popupContent.style.height = '300px'; // 设置弹出框的高度
+                            popupContent.style.backgroundImage = 'url(' + reader.result + ')'; // 设置弹出框的背景为图片
+                            popupContent.style.backgroundSize = 'contain'; // 设置背景图片覆盖整个弹出框
+                            popupContent.style.backgroundPosition = 'center'; // 设置背景图片居中
+                            popupContent.style.backgroundRepeat = 'no-repeat'; // 禁止背景图片重复
+                            popupContent.onclick = function () { // 当点击弹出框时
+                                var imageWindow = window.open("", "_blank"); // 在当前页面中打开一个新的窗口
+                                var img = new Image(); // 创建一个新的图片元素
+                                img.src = reader.result; // 设置图片的源为图片数据
+                                imageWindow.document.write(img.outerHTML); // 将图片元素添加到新窗口的文档中
+                            };
+
+                            var popup = L.popup({
+                                offset: L.point(0, -30), // 在垂直方向上向上偏移30px
+                                autoPan: false // 禁止自动平移
+                            });
+                            popup.setContent(popupContent);
+                            marker.bindPopup(popup).openPopup(); // 将图片添加到弹出窗口
+                        });
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file); // 读取文件内容
+            });
+        });
+    }
+
+</script>
