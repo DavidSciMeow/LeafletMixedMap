@@ -1,0 +1,53 @@
+<meta charset="utf-8">
+<title>EXIF图片更改地理信息</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/Lib/Leaflet/leaflet.css">
+<link rel="stylesheet" href="/Lib/Leaflet-draw/leaflet.draw.css">
+<link rel="stylesheet" href="/Lib/Leaflet-Markercluster/MarkerCluster.css">
+<script src="/Lib/Exif/exif.js"></script>
+<script src="/Lib/Leaflet/leaflet.js"></script>
+<script src="/Lib/Leaflet/transform.js"></script>
+<script src="/Lib/Leaflet-draw/Leaflet.draw.js"></script>
+<script src="/Lib/Leaflet-kit/leaflet.polylineDecorator.js"></script>
+<script src="/Lib/Leaflet-kit/leaflet.filelayer.js"></script>
+<script src="/Lib/Leaflet-Markercluster/leaflet.markercluster.js"></script>
+<script src="/Lib/pMapCreate.js"></script>
+<style>
+    html,
+    body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+    }
+
+    .icon_img {
+        border: 4px solid #f69;
+        overflow: hidden;
+    }
+
+    .cluster-icon {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 100%;
+        color: #fff;
+        background-color: rgba(0, 0, 0, 0.5);
+    }
+</style>
+
+<script>
+    initMap(35.8617, 104.1954, 5);
+    enableFullScreen();
+    enableCluster('marker-cluster');
+    enableScaler('bottomleft')
+    enableBaseMapSelector('topleft');
+
+    //等待页面加载完成后注册事件
+    document.addEventListener('DOMContentLoaded', function () {
+
+    });
+
+
+</script>
